@@ -1,0 +1,341 @@
+/* 
+ * The world's slowest raytracer
+ * Edit line 291 to change the dimensions of the rendering window
+ * (though this may lead to an unresponsive script warning)
+ */
+
+class Colour
+    def new(r, g, b, a)
+        @r = r
+        @g = g
+        @b = b
+        @a = a
+    end
+    
+    def new(r, g, b)
+        @r = r
+        @g = g
+        @b = b
+        @a = 1
+    end
+    
+    def scale(n)
+        return new Colour(@r * n, @g * n, @b * n)
+    end
+    
+    attr(r, g, b, a)
+    
+    def set()
+        setColor(@r * 255, @g * 255, @b * 255, @a)
+    end
+    
+    def interp(c, n)
+        if n < 0
+            n = -n
+        end
+        n = n.limit(0, 1)
+        r = @r + n * (c.r() - @r)
+        g = @g + n * (c.g() - @g)
+        b = @b + n * (c.b() - @b)
+        a = @a + n * (c.a() - @a)
+        return new Colour(r, g, b, a)
+    end
+end
+
+// A 3D vector
+class Vec3
+    def new(x, y, z)
+        @x = x
+        @y = y
+        @z = z
+    end
+    
+    attr(x, y, z)
+    
+    def add(v)
+        return new Vec3(@x + v.x(), @y + v.y(), @z + v.z())
+    end
+    
+    def sub(v)
+        return new Vec3(@x - v.x(), @y - v.y(), @z - v.z())
+    end
+    
+    def scale(d)
+        return new Vec3(@x * d, @y * d, @z * d)
+    end
+    
+    def dot(v)
+        return @x * v.x() + @y * v.y() + @z * v.z()
+    end
+    
+    def mag2()
+        return @x.square() + @y.square() + @z.square()
+    end
+    
+    def mag()
+        return mag2().sqrt()
+    end
+    
+    def norm()
+        return scale(1 / mag())
+    end
+    
+    def toString()
+        return "Vec3: " + @x + " " + @y + " " + @z
+    end
+end
+
+class Ray
+    // Origin, Direction
+    def new(p, d)
+        @p = p
+        @d = d.norm()
+    end
+    
+    read(p, d)
+    
+    // Distance along ray
+    def eval(s)
+        return @p.add(@d.scale(s))
+    end
+end
+
+class Primitive3D
+    def new()
+        // Material properties: coefficients for ambient, diffuse and specular lighting
+        @colour = new Colour(1, 1, 1)
+        @kambient = 1
+        @kdiffuse = 1
+        @kspecular = 1
+        @kalpha = 1
+    end
+    
+    attr(colour, kambient, kdiffuse, kspecular, kalpha)
+    
+    // The normal at the point on the surface closest to q
+    def getNormal(q)
+    end
+    
+    // Intersection of a ray with the surface, NULL if no intersection
+    def intersect(r)
+    end
+end
+
+class Sphere < Primitive3D
+    def new(x, y, z, r)
+        @p = new Vec3(x, y, z)
+        @r = r
+    end
+    
+    def getNormal(q)
+        return q.sub(@p).norm()
+    end
+    
+    def intersect(r)
+        //console(toString())
+        //console('p:' + r.p() + ' d:' + r.d())
+        
+        o = @p.sub(r.p())
+        det = o.dot(r.d()).square() + @r.square() - o.mag2()
+        
+        if det < 0
+            return null
+        end
+        
+        m = o.dot(r.d())
+        if det == 0
+            return r.eval(m)
+        end
+        
+        // Multiple intersections, return closest to ray origin
+        m1 = r.eval(m - det.sqrt())
+        m2 = r.eval(m + det.sqrt())
+        
+        if m1.sub(r.p()).mag2() < m2.sub(r.p()).mag2()
+            return m1
+        else
+            return m2
+        end
+    end
+    
+    def toString()
+        return 'Sphere: ' + @p + ' r:' + @r
+    end
+end
+
+class Camera
+    def new(pos, dir, xangle)
+        @pos = pos
+        @dir = dir
+        setScreenSize(getScreenWidth(), getScreenHeight(), xangle)
+    end
+    
+    def setScreenSize(w, h, xangle)
+        @w = w
+        @h = h
+        @xangle = xangle
+        
+        // The angular offset between rays from adjacent pixels
+        lra = @xangle / @w
+        uda = @xangle / @w
+        
+        // Add this to dir to approx rotate left/right and up/down between adjacent pixels
+        @dsx = new Vec3(@dir.x() * lra.cos() + @dir.z() * lra.sin(), @dir.y(),
+            -@dir.x() * lra.sin() + @dir.z() * lra.cos())
+        @dsx = @dsx.sub(@dir)
+        @dsy = new Vec3(@dir.x(), @dir.y() * uda.cos() - @dir.z() * uda.sin(),
+            @dir.y() * uda.sin() + @dir.z() * uda.cos())
+        @dsy = @dsy.sub(@dir)
+    end
+    
+    read(pos, dir)
+    read(w, h, xangle)
+    
+    def getRay(sx, sy)
+        sx = sx - @w / 2
+        sy = sy - @h / 2
+        d = @dir.add(@dsx.scale(sx)).add(@dsy.scale(sy))
+        // Rotate left/right, then up/down (note Ray will normalise d so can ignore here)
+        return new Ray(@pos, d)
+    end
+end
+
+class PointLight
+    def new(pos, colour)
+        @pos = pos
+        @colour = colour
+    end
+    
+    read(pos, colour)
+end
+
+class Scene
+    def new (camera)
+        @camera = camera
+        
+        @ambient = []
+        @pointLights = []
+        @objects = []
+    end
+    
+    def addObject(p3d)
+        @objects.add(p3d)
+    end
+    
+    def setAmbient(colour)
+        @ambient = colour
+    end
+    
+    def addPointLight(light)
+        @pointLights.add(light)
+    end
+    
+    def renderObject(obj, t, ray, sx, sy)
+        // For now assume all lights are white for ambient and diffuse
+        light = @pointLights[0]
+        N = obj.getNormal(t)
+        L = light.pos().sub(t).norm()
+        R = N.scale(2 * (L.dot(N))).sub(L)
+        V = ray.d().scale(-1).norm()
+        
+        ka = obj.kambient()
+        kd = L.dot(N)
+        if kd > 0
+            kd = obj.kdiffuse() * kd
+            ks = obj.kspecular() * (R.dot(V) ** obj.kalpha()).limit(0, 1)
+        else
+            kd = 0
+            ks = 0
+        end
+        
+        la = obj.colour().scale(ka)
+        ld = obj.colour().scale(kd)
+        ls = light.colour().scale(ks)
+        
+        c = new Colour((la.r() + ld.r() + ls.r()).limit(0, 1),
+            (la.g() + ld.g() + ls.g()).limit(0, 1),
+            (la.b() + ld.b() + ls.b()).limit(0, 1))
+        c.set()
+        drawPixel(sx, sy)
+    end
+    
+    def renderPixel(column, row)
+        sx = column
+        sy = row
+        r = @camera.getRay(sx, sy)
+        t = @objects[0].intersect(r)
+        if t
+            console('Rendering ' + sx + ',' + sy + ' ' + t)
+            renderObject(@objects[0], t, r, sx, sy)
+        end
+    end
+    
+    def renderColumn(column)
+        //0.upTo(@camera.w(), 10) do |column|
+        0.upTo(@camera.h(), 1) do |row|
+            renderPixel(column, row)
+        end
+        //end
+    end
+end
+
+//setFont( 'Arial', 32, 'italic' )
+
+count = 0
+fill( :black )
+
+pos = new Vec3(0, 0, 0)
+dir = new Vec3(0, 0, 1)
+xangle = 90.toRadians()
+camera = new Camera(pos, dir, xangle)
+camera.setScreenSize(100, 100, xangle)
+
+scene = new Scene(camera)
+scene.setAmbient(new Colour(0.1, 0.1, 0.1))
+
+light = new PointLight(new Vec3(-10, 10, 0), new Colour(1, 1, 1))
+scene.addPointLight(light)
+
+obj = new Sphere(0, 0, 10, 5)
+obj.colour(new Colour(1, 0, 0, 1))
+obj.kambient(0.05)
+obj.kdiffuse(0.5)
+obj.kspecular(1)
+obj.kalpha(40)
+scene.addObject(obj)
+//scene.render()
+
+// The code inside this do block is run each frame
+onEachFrame() do
+    if count < camera.w()
+        console('Column ' + count)
+        scene.renderColumn(count)
+    end
+    count = count + 1
+end
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
